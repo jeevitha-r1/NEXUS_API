@@ -1,11 +1,14 @@
-const calculateNextAction = require("../services/priorityEngine");
 const express = require("express");
-const goals = require("../data/goals");
+const db = require("../config/database");
+const calculateNextAction = require("../services/priorityEngine");
 
 const router = express.Router();
-
 // GET all goals
 router.get("/", (req, res) => {
+  const goals = db
+    .prepare("SELECT * FROM goals ORDER BY created_at DESC")
+    .all();
+
   res.status(200).json({
     success: true,
     count: goals.length,
@@ -15,9 +18,14 @@ router.get("/", (req, res) => {
 
 // POST a new goal
 router.post("/", (req, res) => {
-  const { title, category, priority, deadline, estimatedHours } = req.body;
+  const {
+    title,
+    category,
+    priority,
+    deadline,
+    estimatedHours
+  } = req.body;
 
-  // Validate required fields
   if (!title || !category || !priority) {
     return res.status(400).json({
       success: false,
@@ -25,7 +33,6 @@ router.post("/", (req, res) => {
     });
   }
 
-  // Validate priority
   const validPriorities = ["low", "medium", "high"];
 
   if (!validPriorities.includes(priority.toLowerCase())) {
@@ -35,18 +42,23 @@ router.post("/", (req, res) => {
     });
   }
 
-const newGoal = {
-  id: goals.length + 1,
-  title: title.trim(),
-  category: category.trim(),
-  priority: priority.toLowerCase(),
-  progress: 0,
-  status: "not_started",
-  deadline,
-  estimatedHours: Number(estimatedHours) || 0
-};
+  const result = db
+    .prepare(`
+      INSERT INTO goals
+      (title, category, priority, deadline, estimated_hours)
+      VALUES (?, ?, ?, ?, ?)
+    `)
+    .run(
+      title.trim(),
+      category.trim(),
+      priority.toLowerCase(),
+      deadline || null,
+      Number(estimatedHours) || 0
+    );
 
-  goals.push(newGoal);
+  const newGoal = db
+    .prepare("SELECT * FROM goals WHERE id = ?")
+    .get(result.lastInsertRowid);
 
   res.status(201).json({
     success: true,
@@ -56,11 +68,12 @@ const newGoal = {
 });
 
 // GET a single goal by ID
-// GET a single goal by ID
 router.get("/:id", (req, res) => {
   const goalId = Number(req.params.id);
 
-  const goal = goals.find((goal) => goal.id === goalId);
+  const goal = db
+    .prepare("SELECT * FROM goals WHERE id = ?")
+    .get(goalId);
 
   if (!goal) {
     return res.status(404).json({
@@ -75,35 +88,13 @@ router.get("/:id", (req, res) => {
   });
 });
 
-
 // DELETE a goal by ID
 router.delete("/:id", (req, res) => {
   const goalId = Number(req.params.id);
 
-  const goalIndex = goals.findIndex((goal) => goal.id === goalId);
-
-  if (goalIndex === -1) {
-    return res.status(404).json({
-      success: false,
-      error: "Goal not found"
-    });
-  }
-
-  const deletedGoal = goals.splice(goalIndex, 1);
-
-  res.status(200).json({
-    success: true,
-    message: "Goal deleted successfully",
-    data: deletedGoal[0]
-  });
-});
-
-
-// UPDATE a goal by ID
-router.put("/:id", (req, res) => {
-  const goalId = Number(req.params.id);
-
-  const goal = goals.find((goal) => goal.id === goalId);
+  const goal = db
+    .prepare("SELECT * FROM goals WHERE id = ?")
+    .get(goalId);
 
   if (!goal) {
     return res.status(404).json({
@@ -112,16 +103,38 @@ router.put("/:id", (req, res) => {
     });
   }
 
- const {
-  title,
-  category,
-  priority,
-  progress,
-  deadline,
-  estimatedHours
-} = req.body;
+  db.prepare("DELETE FROM goals WHERE id = ?").run(goalId);
 
-  // Validate required fields
+  res.status(200).json({
+    success: true,
+    message: "Goal deleted successfully",
+    data: goal
+  });
+});
+// UPDATE a goal by ID
+router.put("/:id", (req, res) => {
+  const goalId = Number(req.params.id);
+
+  const existingGoal = db
+    .prepare("SELECT * FROM goals WHERE id = ?")
+    .get(goalId);
+
+  if (!existingGoal) {
+    return res.status(404).json({
+      success: false,
+      error: "Goal not found"
+    });
+  }
+
+  const {
+    title,
+    category,
+    priority,
+    progress,
+    deadline,
+    estimatedHours
+  } = req.body;
+
   if (!title || !category || !priority) {
     return res.status(400).json({
       success: false,
@@ -138,42 +151,56 @@ router.put("/:id", (req, res) => {
     });
   }
 
-  goal.title = title.trim();
-  goal.category = category.trim();
-  goal.priority = priority.toLowerCase();
+  const updatedProgress =
+    progress !== undefined ? Number(progress) : existingGoal.progress;
 
-  if (deadline !== undefined) {
-  goal.deadline = deadline;
-}
-
-if (estimatedHours !== undefined) {
-  goal.estimatedHours = Number(estimatedHours);
-}
-
-  if (progress !== undefined) {
-  if (progress < 0 || progress > 100) {
+  if (updatedProgress < 0 || updatedProgress > 100) {
     return res.status(400).json({
       success: false,
       error: "Progress must be between 0 and 100"
     });
   }
 
-  goal.progress = progress;
+  let updatedStatus = "not_started";
 
-  if (progress === 0) {
-    goal.status = "not_started";
-  } else if (progress === 100) {
-    goal.status = "completed";
-  } else {
-    goal.status = "in_progress";
+  if (updatedProgress > 0 && updatedProgress < 100) {
+    updatedStatus = "in_progress";
+  } else if (updatedProgress === 100) {
+    updatedStatus = "completed";
   }
-}
 
+  db.prepare(`
+    UPDATE goals
+    SET
+      title = ?,
+      category = ?,
+      priority = ?,
+      progress = ?,
+      status = ?,
+      deadline = ?,
+      estimated_hours = ?
+    WHERE id = ?
+  `).run(
+    title.trim(),
+    category.trim(),
+    priority.toLowerCase(),
+    updatedProgress,
+    updatedStatus,
+    deadline !== undefined ? deadline : existingGoal.deadline,
+    estimatedHours !== undefined
+      ? Number(estimatedHours)
+      : existingGoal.estimated_hours,
+    goalId
+  );
+
+  const updatedGoal = db
+    .prepare("SELECT * FROM goals WHERE id = ?")
+    .get(goalId);
 
   res.status(200).json({
     success: true,
     message: "Goal updated successfully",
-    data: goal
+    data: updatedGoal
   });
 });
 
