@@ -1,5 +1,6 @@
 const express = require("express");
 const goalRoutes = require("./routes/goalRoutes");
+const plannerRoutes = require("./routes/plannerRoutes");
 
 require("./database/schema");
 
@@ -9,6 +10,8 @@ const PORT = 3000;
 
 // Middleware
 app.use(express.json());
+
+app.use("/api/planner", plannerRoutes);
 
 // Home route
 app.get("/", (req, res) => {
