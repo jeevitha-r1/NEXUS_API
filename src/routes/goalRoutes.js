@@ -1,6 +1,7 @@
 const express = require("express");
 const db = require("../config/database");
 const calculateNextAction = require("../services/priorityEngine");
+const analyzeGoal = require("../services/intelligenceEngine");
 
 const router = express.Router();
 // GET all goals
@@ -223,6 +224,33 @@ router.get("/:id/next-action", (req, res) => {
     success: true,
     goal: goal.title,
     recommendation
+  });
+});
+
+
+// Analyze a goal using the NEXUS Intelligence Engine
+router.get("/:id/intelligence", (req, res) => {
+  const goalId = Number(req.params.id);
+
+  const goal = db
+    .prepare("SELECT * FROM goals WHERE id = ?")
+    .get(goalId);
+
+  if (!goal) {
+    return res.status(404).json({
+      success: false,
+      error: "Goal not found"
+    });
+  }
+
+  const analysis = analyzeGoal(goal);
+
+  res.status(200).json({
+    success: true,
+    data: {
+      goal: goal.title,
+      analysis
+    }
   });
 });
 
