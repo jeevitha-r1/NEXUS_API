@@ -2,7 +2,9 @@ const express = require("express");
 const db = require("../config/database");
 const calculateNextAction = require("../services/priorityEngine");
 const analyzeGoal = require("../services/intelligenceEngine");
-
+const analyzeGoalQuality =
+  require("../services/goalQualityEngine");
+  
 const router = express.Router();
 // GET all goals
 router.get("/", (req, res) => {
@@ -254,4 +256,36 @@ router.get("/:id/intelligence", (req, res) => {
   });
 });
 
+
+router.get("/:id/quality", (req, res) => {
+  const goalId = Number(req.params.id);
+
+  const goal = db
+    .prepare("SELECT * FROM goals WHERE id = ?")
+    .get(goalId);
+
+  if (!goal) {
+    return res.status(404).json({
+      success: false,
+      error: "Goal not found"
+    });
+  }
+
+  const allGoals = db
+    .prepare("SELECT * FROM goals")
+    .all();
+
+  const qualityAnalysis = analyzeGoalQuality(
+    goal,
+    allGoals
+  );
+
+  res.status(200).json({
+    success: true,
+    data: {
+      goal: goal.title,
+      quality: qualityAnalysis
+    }
+  });
+});
 module.exports = router;
