@@ -1,6 +1,8 @@
 const express = require("express");
 const goalRoutes = require("./routes/goalRoutes");
 
+require("./database/schema");
+
 const app = express();
 
 const PORT = 3000;
