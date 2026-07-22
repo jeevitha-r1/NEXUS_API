@@ -1,4 +1,5 @@
 const analyzeGoal = require("./intelligenceEngine");
+const analyzeGoalQuality = require("./goalQualityEngine");
 
 function generateDailyPlan(goals, availableHours = 4) {
   const activeGoals = goals.filter(
@@ -7,6 +8,7 @@ function generateDailyPlan(goals, availableHours = 4) {
 
   const analyzedGoals = activeGoals.map((goal) => {
     const analysis = analyzeGoal(goal);
+    const quality = analyzeGoalQuality(goal, goals);
 
     return {
       goalId: goal.id,
@@ -14,15 +16,32 @@ function generateDailyPlan(goals, availableHours = 4) {
       urgencyScore: analysis.urgencyScore,
       urgencyLevel: analysis.urgencyLevel,
       remainingHours: analysis.remainingHours,
+      riskLevel: quality.riskLevel,
+      isOverdue: quality.isOverdue,
+      isDuplicate: quality.isDuplicate,
       nextAction: analysis.nextAction,
       reason: analysis.reason
     };
   });
 
-  analyzedGoals.sort(
-    (a, b) => b.urgencyScore - a.urgencyScore
-  );
+  analyzedGoals.sort((a, b) => {
+  const riskWeights = {
+    critical: 4,
+    high: 3,
+    medium: 2,
+    low: 1
+  };
 
+  const riskDifference =
+    riskWeights[b.riskLevel] -
+    riskWeights[a.riskLevel];
+
+  if (riskDifference !== 0) {
+    return riskDifference;
+  }
+
+  return b.urgencyScore - a.urgencyScore;
+});
   let remainingTime = availableHours;
 
   const plan = [];
@@ -35,7 +54,6 @@ function generateDailyPlan(goals, availableHours = 4) {
         goal: goal.goal,
         reason: "Not enough time available today"
       });
-
       continue;
     }
 
@@ -52,6 +70,9 @@ function generateDailyPlan(goals, availableHours = 4) {
         goal: goal.goal,
         urgencyScore: goal.urgencyScore,
         urgencyLevel: goal.urgencyLevel,
+        riskLevel: goal.riskLevel,
+        isOverdue: goal.isOverdue,
+        isDuplicate: goal.isDuplicate,
         allocatedHours: Math.round(allocatedTime * 10) / 10,
         nextAction: goal.nextAction,
         reason: goal.reason
